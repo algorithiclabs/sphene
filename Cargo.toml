@@ -1,0 +1,15 @@
+[package]
+name = "sphene"
+version = "0.1.0-alpha.1"
+edition = "2021"
+authors = ["Algorithic domainique@algorithic.com"]
+description = "A high-performance, modern CLI tool for core image processing, editing, and pixel manipulation."
+readme = "README.md"
+repository = "https://github.com/algorithiclabs/sphene.git"
+license = "MIT"
+keywords = ["image", "cli", "processing", "graphics", "bitmap"]
+categories = ["command-line-utilities", "multimedia::images"]
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+thiserror = "1.0"
