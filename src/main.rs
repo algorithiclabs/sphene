@@ -1,27 +1,17 @@
 use clap::{Parser, Subcommand};
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum SpheneError {
-    #[error("Failed to read image file from path: {0}")]
-    IoError(String),
-    #[error("Unsupported image format: {0}")]
-    UnsupportedFormat(String),
-    #[error("Unknown error occurred during image processing")]
-    Unknown,
-}
+use sphene::{convert_image, resize_image, SpheneError};
 
 #[derive(Parser, Debug)]
-#[command(name = "sphene")]
-#[command(author, version, about = "Modern image processing CLI tool", long_about = None)]
+#[command(name = "sphene", author, version, about = "Modern image processing CLI tool", disable_help_flag = true)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
+    #[clap(long, action = clap::ArgAction::HelpLong)]
+    help: Option<bool>,
 }
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Resize an input image specifying explicit dimensions
     Resize {
         #[arg(short, long)]
         input: String,
@@ -31,6 +21,8 @@ enum Commands {
         width: u32,
         #[arg(short, long)]
         height: u32,
+        #[clap(long, action = clap::ArgAction::HelpLong)]
+        help: Option<bool>,
     },
     /// Convert an image file format to another container layout
     Convert {
@@ -38,6 +30,8 @@ enum Commands {
         input: String,
         #[arg(short, long)]
         output: String,
+        #[clap(long, action = clap::ArgAction::HelpLong)]
+        help: Option<bool>,
     },
 }
 
@@ -45,16 +39,14 @@ fn main() -> Result<(), SpheneError> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Commands::Resize { input, output, width, height }) => {
-            println!("Sphene: Resizing '{}' to '{}' ({}x{}px)...", input, output, width, height);
-            println!("Status: Core execution pipeline is initializing.");
+        Some(Commands::Resize { input, output, width, height, help: _ }) => {
+            resize_image(input, output, *width, *height)?;
         }
-        Some(Commands::Convert { input, output }) => {
-            println!("Sphene: Converting '{}' directly into '{}'...", input, output);
-            println!("Status: Format conversion sub-pipeline is initializing.");
+        Some(Commands::Convert { input, output, help: _ }) => {
+            convert_image(input, output)?;
         }
         None => {
-            println!("Sphene Image Processor Alpha. Run with '--help' to see usage instructions.");
+            println!("Sphene Image Processor. Use --help for usage instructions.");
         }
     }
 
