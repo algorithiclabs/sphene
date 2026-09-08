@@ -1,52 +1,38 @@
 use clap::{Parser, Subcommand};
-use sphene::{convert_image, resize_image, SpheneError};
+use sphene::{convert_image, needs_fallback, spawn_fallback, SpheneError};
 
 #[derive(Parser, Debug)]
-#[command(name = "sphene", author, version, about = "Modern image processing CLI tool", disable_help_flag = true)]
+#[command(name = "sphene", author, version, about = "Memory-safe image processing CLI with ImageMagick fallback")]
 struct Cli {
     #[command(subcommand)]
-    command: Option<Commands>,
-    #[clap(long, action = clap::ArgAction::HelpLong)]
-    help: Option<bool>,
+    command: Commands,
 }
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    Resize {
-        #[arg(short, long)]
-        input: String,
-        #[arg(short, long)]
-        output: String,
-        #[arg(short, long)]
-        width: u32,
-        #[arg(short, long)]
-        height: u32,
-        #[clap(long, action = clap::ArgAction::HelpLong)]
-        help: Option<bool>,
-    },
-    /// Convert an image file format to another container layout
+    /// Convert an image, optionally resizing and/or adjusting quality: `convert <input> [-resize WxH] [-quality N] <output>`
     Convert {
-        #[arg(short, long)]
         input: String,
-        #[arg(short, long)]
-        output: String,
-        #[clap(long, action = clap::ArgAction::HelpLong)]
-        help: Option<bool>,
+        #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
+        rest: Vec<String>,
     },
 }
 
 fn main() -> Result<(), SpheneError> {
-    let cli = Cli::parse();
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
 
-    match &cli.command {
-        Some(Commands::Resize { input, output, width, height, help: _ }) => {
-            resize_image(input, output, *width, *height)?;
-        }
-        Some(Commands::Convert { input, output, help: _ }) => {
-            convert_image(input, output)?;
-        }
-        None => {
-            println!("Sphene Image Processor. Use --help for usage instructions.");
+    if needs_fallback(&raw_args) {
+        let code = spawn_fallback("magick", &raw_args)?;
+        std::process::exit(code);
+    }
+
+    let cli = Cli::parse();
+    match cli.command {
+        Commands::Convert { input, mut rest } => {
+            let output = rest.pop().ok_or_else(|| {
+                SpheneError::UnsupportedFormat("missing output path".to_string())
+            })?;
+            convert_image(&input, &output)?;
         }
     }
 

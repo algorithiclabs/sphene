@@ -6,10 +6,13 @@ authors = ["Algorithic domainique@algorithic.com"]
 description = "A high-performance, modern CLI tool for core image processing, editing, and pixel manipulation."
 readme = "README.md"
 repository = "https://github.com/algorithiclabs/sphene.git"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 keywords = ["image", "cli", "processing", "graphics", "bitmap"]
 categories = ["command-line-utilities", "multimedia::images"]
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
 thiserror = "1.0"
+image = "0.25"
+libavif-sys = { version = "0.17", default-features = false, features = ["codec-aom"] }
+libheif-rs = "=1.0.2"

@@ -16,3 +16,7 @@ This project is currently in early **Alpha** development phase. The namespace is
 ```bash
 cargo install sphene --version 0.1.0-alpha.1
 ```
+
+## Disclaimer
+
+- HEIC support requires system libheif. Patent compliance for HEVC usage is the responsibility of the end user.
