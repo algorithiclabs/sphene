@@ -1,3 +1,5 @@
+mod avif;
+
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
@@ -220,6 +222,23 @@ fn resize_in_linear_space(img: &DynamicImage, width: u32, height: u32) -> RgbaIm
     })
 }
 
+/// Peeks `input`'s pixel dimensions without decoding it, for the DOS guard. AVIF isn't
+/// supported by `image`'s own format sniffing, so it's routed to the libavif wrapper instead.
+fn peek_dimensions(input: &str) -> Result<(u32, u32), SpheneError> {
+    if matches!(image::ImageFormat::from_path(input), Ok(image::ImageFormat::Avif)) {
+        return avif::read_dimensions(input);
+    }
+    image::image_dimensions(input).map_err(|e| SpheneError::IoError(e.to_string()))
+}
+
+/// Decodes `input`, routing AVIF through the libavif wrapper and everything else through `image`.
+fn open_image(input: &str) -> Result<DynamicImage, SpheneError> {
+    if matches!(image::ImageFormat::from_path(input), Ok(image::ImageFormat::Avif)) {
+        return avif::decode_avif(input);
+    }
+    image::open(input).map_err(|e| SpheneError::IoError(e.to_string()))
+}
+
 /// Computes dimensions that fit within `target_w`x`target_h` while preserving aspect ratio.
 /// This is ImageMagick's default `WxH` sizing behavior; modifiers (`^`, `!`, `>`, `<`) that
 /// change this behavior are routed to the fallback by `needs_fallback` before reaching here.
@@ -232,6 +251,8 @@ fn fit_within(src_w: u32, src_h: u32, target_w: u32, target_h: u32) -> (u32, u32
 
 /// Default WebP quality (0.0-100.0) used when `-quality` isn't given; matches `webp`'s own default.
 const DEFAULT_WEBP_QUALITY: f32 = 75.0;
+/// Default AVIF quality (0-100, libavif's own scale) used when `-quality` isn't given.
+const DEFAULT_AVIF_QUALITY: u8 = 75;
 
 /// Writes `img` to `output`, inferring format from its extension. Honors `quality` for JPEG
 /// (lossy) and WEBP (lossy, via libwebp). PNG has no quality concept and ignores it.
@@ -262,6 +283,11 @@ fn encode_output(img: RgbaImage, output: &str, quality: Option<u8>) -> Result<()
             let encoded = encoder.encode(quality);
             std::fs::write(output, &*encoded).map_err(|e| SpheneError::IoError(e.to_string()))
         }
+        image::ImageFormat::Avif => {
+            let quality = quality.unwrap_or(DEFAULT_AVIF_QUALITY);
+            let encoded = avif::encode_avif(&img, quality)?;
+            std::fs::write(output, &encoded).map_err(|e| SpheneError::IoError(e.to_string()))
+        }
         _ => img
             .save_with_format(output, format)
             .map_err(|e| SpheneError::IoError(e.to_string())),
@@ -272,11 +298,10 @@ fn encode_output(img: RgbaImage, output: &str, quality: Option<u8>) -> Result<()
 pub fn resize_image(input: &str, output: &str, width: u32, height: u32) -> Result<(), SpheneError> {
     check_dimensions(width, height)?;
 
-    let (src_w, src_h) =
-        image::image_dimensions(input).map_err(|e| SpheneError::IoError(e.to_string()))?;
+    let (src_w, src_h) = peek_dimensions(input)?;
     check_dimensions(src_w, src_h)?;
 
-    let img = image::open(input).map_err(|e| SpheneError::IoError(e.to_string()))?;
+    let img = open_image(input)?;
     let resized = resize_in_linear_space(&img, width, height);
     encode_output(resized, output, None)
 }
@@ -293,11 +318,10 @@ pub fn convert_image(
         check_dimensions(target_w, target_h)?;
     }
 
-    let (src_w, src_h) =
-        image::image_dimensions(input).map_err(|e| SpheneError::IoError(e.to_string()))?;
+    let (src_w, src_h) = peek_dimensions(input)?;
     check_dimensions(src_w, src_h)?;
 
-    let img = image::open(input).map_err(|e| SpheneError::IoError(e.to_string()))?;
+    let img = open_image(input)?;
 
     let final_img = match resize {
         Some((target_w, target_h)) => {
