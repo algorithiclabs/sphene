@@ -8,6 +8,20 @@ pub enum SpheneError {
     UnsupportedFormat(String),
     #[error("Unknown error occurred during image processing")]
     Unknown,
+    #[error("Requested dimensions {0}x{1} exceed the 250-megapixel safety limit")]
+    DimensionsTooLarge(u32, u32),
+}
+
+/// Hard DOS-protection ceiling: total pixel count must stay under this before any buffer allocation.
+const MAX_PIXELS: u64 = 250_000_000;
+
+/// Rejects dimensions whose pixel count would hit or exceed `MAX_PIXELS`.
+/// Must be called before any pixel buffer is allocated.
+pub fn check_dimensions(width: u32, height: u32) -> Result<(), SpheneError> {
+    if (width as u64) * (height as u64) >= MAX_PIXELS {
+        return Err(SpheneError::DimensionsTooLarge(width, height));
+    }
+    Ok(())
 }
 
 /// Flags the native engine parses itself. Anything else routes to the ImageMagick fallback.
@@ -90,8 +104,39 @@ mod fallback_tests {
     }
 }
 
+#[cfg(test)]
+mod dos_guard_tests {
+    use super::*;
+
+    #[test]
+    fn dimensions_at_or_over_limit_abort_cleanly() {
+        // 20_000 * 20_000 = 400_000_000, over the 250M ceiling.
+        let err = check_dimensions(20_000, 20_000).unwrap_err();
+        assert!(matches!(err, SpheneError::DimensionsTooLarge(20_000, 20_000)));
+    }
+
+    #[test]
+    fn dimensions_that_would_overflow_u32_abort_cleanly() {
+        // 65_536 * 65_536 overflows u32::MAX; must not panic on the multiply.
+        let err = check_dimensions(65_536, 65_536).unwrap_err();
+        assert!(matches!(err, SpheneError::DimensionsTooLarge(_, _)));
+    }
+
+    #[test]
+    fn dimensions_within_limit_are_accepted() {
+        assert!(check_dimensions(10_000, 10_000).is_ok()); // 100_000_000 < limit
+    }
+
+    #[test]
+    fn resize_image_rejects_oversized_dimensions_before_touching_pixels() {
+        let err = resize_image("in.jpg", "out.jpg", 20_000, 20_000).unwrap_err();
+        assert!(matches!(err, SpheneError::DimensionsTooLarge(_, _)));
+    }
+}
+
 /// Core function to handle image resizing logic.
 pub fn resize_image(_input: &str, _output: &str, width: u32, height: u32) -> Result<(), SpheneError> {
+    check_dimensions(width, height)?;
     println!("Sphene Lib: Initializing resize routine for {}x{}px", width, height);
     // Real pixel processing code will go here in the future
     Ok(())

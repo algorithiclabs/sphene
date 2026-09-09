@@ -16,3 +16,7 @@ thiserror = "1.0"
 image = "0.25"
 libavif-sys = { version = "0.17", default-features = false, features = ["codec-aom"] }
 libheif-rs = "=1.0.2"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
