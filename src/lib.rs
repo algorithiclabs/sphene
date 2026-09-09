@@ -4,6 +4,7 @@ use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
 use std::fs::File;
+use std::io::Cursor;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -14,12 +15,13 @@ pub enum SpheneError {
     UnsupportedFormat(String),
     #[error("Unknown error occurred during image processing")]
     Unknown,
-    #[error("Requested dimensions {0}x{1} exceed the 250-megapixel safety limit")]
+    #[error("Requested dimensions {0}x{1} exceed the 50-megapixel safety limit")]
     DimensionsTooLarge(u32, u32),
 }
 
 /// Hard DOS-protection ceiling: total pixel count must stay under this before any buffer allocation.
-const MAX_PIXELS: u64 = 250_000_000;
+// ponytail: 50MP limit prevents 10GB+ linear RGBA allocation. Chunked processing deferred to v0.6.
+pub(crate) const MAX_PIXELS: u64 = 50_000_000;
 
 /// Rejects dimensions whose pixel count would hit or exceed `MAX_PIXELS`.
 /// Must be called before any pixel buffer is allocated.
@@ -34,11 +36,45 @@ pub fn check_dimensions(width: u32, height: u32) -> Result<(), SpheneError> {
 const NATIVE_FLAGS: [&str; 2] = ["-resize", "-quality"];
 /// ImageMagick resize modifiers (`!`, `>`, `<`, `^`) that the native resize path doesn't implement.
 const RESIZE_MODIFIERS: [char; 4] = ['!', '>', '<', '^'];
+const NATIVE_EXTENSIONS: [&str; 7] = ["avif", "heic", "heif", "jpeg", "jpg", "png", "webp"];
+
+fn has_native_extension(path: &str) -> bool {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            NATIVE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+        })
+}
+
+fn native_input_output(args: &[String]) -> Option<(&str, &str)> {
+    let input = args.get(1)?.as_str();
+    let mut index = 2;
+
+    while let Some(arg) = args.get(index) {
+        if NATIVE_FLAGS.contains(&arg.as_str()) {
+            index += 2;
+            continue;
+        }
+        if arg.starts_with('-') || index + 1 != args.len() {
+            return None;
+        }
+        return Some((input, arg));
+    }
+
+    None
+}
 
 /// Strangler Fig gate: scans raw CLI args for syntax the native engine can't handle
 /// (STDIN `-`, resize modifiers, or any flag outside `NATIVE_FLAGS`) so parsing can
 /// halt before clap ever touches them, per the PRD's <5ms handoff requirement.
 pub fn needs_fallback(args: &[String]) -> bool {
+    if let Some((input, output)) = native_input_output(args) {
+        if !has_native_extension(input) || !has_native_extension(output) {
+            return true;
+        }
+    }
+
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
@@ -49,7 +85,10 @@ pub fn needs_fallback(args: &[String]) -> bool {
             if !NATIVE_FLAGS.contains(&arg.as_str()) {
                 return true;
             }
-            if args.get(i + 1).is_some_and(|v| v.contains(RESIZE_MODIFIERS)) {
+            if args
+                .get(i + 1)
+                .is_some_and(|v| v.contains(RESIZE_MODIFIERS))
+            {
                 return true;
             }
             i += 1;
@@ -98,7 +137,25 @@ mod fallback_tests {
 
     #[test]
     fn unknown_flag_falls_back() {
-        assert!(needs_fallback(&args(&["convert", "in.jpg", "-polaroid", "out.png"])));
+        assert!(needs_fallback(&args(&[
+            "convert",
+            "in.jpg",
+            "-polaroid",
+            "out.png"
+        ])));
+    }
+
+    #[test]
+    fn unknown_extensions_fall_back() {
+        assert!(needs_fallback(&args(&["convert", "in.unknown", "out.png"])));
+        assert!(needs_fallback(&args(&["convert", "in.png", "out.unknown"])));
+    }
+
+    #[test]
+    fn malformed_native_flag_stays_native() {
+        assert!(!needs_fallback(&args(&[
+            "convert", "in.jpg", "-resize", "garbage"
+        ])));
     }
 
     #[test]
@@ -116,9 +173,21 @@ mod dos_guard_tests {
 
     #[test]
     fn dimensions_at_or_over_limit_abort_cleanly() {
-        // 20_000 * 20_000 = 400_000_000, over the 250M ceiling.
+        // 20_000 * 20_000 = 400_000_000, over the 50M ceiling.
         let err = check_dimensions(20_000, 20_000).unwrap_err();
-        assert!(matches!(err, SpheneError::DimensionsTooLarge(20_000, 20_000)));
+        assert!(matches!(
+            err,
+            SpheneError::DimensionsTooLarge(20_000, 20_000)
+        ));
+    }
+
+    #[test]
+    fn dimensions_at_exact_limit_abort_cleanly() {
+        let err = check_dimensions(10_000, 5_000).unwrap_err();
+        assert!(matches!(
+            err,
+            SpheneError::DimensionsTooLarge(10_000, 5_000)
+        ));
     }
 
     #[test]
@@ -130,7 +199,7 @@ mod dos_guard_tests {
 
     #[test]
     fn dimensions_within_limit_are_accepted() {
-        assert!(check_dimensions(10_000, 10_000).is_ok()); // 100_000_000 < limit
+        assert!(check_dimensions(5_000, 5_000).is_ok()); // 25_000_000 < limit
     }
 
     #[test]
@@ -166,7 +235,10 @@ mod alpha_tests {
 
         let rgba = decoded.to_rgba8();
         for pixel in rgba.pixels() {
-            assert_eq!(pixel[3], 128, "alpha channel should survive resize untouched");
+            assert_eq!(
+                pixel[3], 128,
+                "alpha channel should survive resize untouched"
+            );
         }
 
         let _ = std::fs::remove_file(&input);
@@ -224,26 +296,39 @@ fn resize_in_linear_space(img: &DynamicImage, width: u32, height: u32) -> RgbaIm
 
 /// Peeks `input`'s pixel dimensions without decoding it, for the DOS guard. AVIF isn't
 /// supported by `image`'s own format sniffing, so it's routed to the libavif wrapper instead.
-fn peek_dimensions(input: &str) -> Result<(u32, u32), SpheneError> {
-    if matches!(image::ImageFormat::from_path(input), Ok(image::ImageFormat::Avif)) {
-        return avif::read_dimensions(input);
+fn peek_dimensions(input: &str, data: &[u8]) -> Result<(u32, u32), SpheneError> {
+    if matches!(
+        image::ImageFormat::from_path(input),
+        Ok(image::ImageFormat::Avif)
+    ) {
+        return avif::read_dimensions(data);
     }
-    image::image_dimensions(input).map_err(|e| SpheneError::IoError(e.to_string()))
+    image::ImageReader::new(Cursor::new(data))
+        .with_guessed_format()
+        .map_err(|e| SpheneError::IoError(e.to_string()))?
+        .into_dimensions()
+        .map_err(|e| SpheneError::IoError(e.to_string()))
 }
 
 /// Decodes `input`, routing AVIF through the libavif wrapper and everything else through `image`.
-fn open_image(input: &str) -> Result<DynamicImage, SpheneError> {
-    if matches!(image::ImageFormat::from_path(input), Ok(image::ImageFormat::Avif)) {
-        return avif::decode_avif(input);
+fn open_image(input: &str, data: &[u8]) -> Result<DynamicImage, SpheneError> {
+    if matches!(
+        image::ImageFormat::from_path(input),
+        Ok(image::ImageFormat::Avif)
+    ) {
+        return avif::decode_avif(data);
     }
-    image::open(input).map_err(|e| SpheneError::IoError(e.to_string()))
+    image::load_from_memory(data).map_err(|e| SpheneError::IoError(e.to_string()))
 }
 
 /// Computes dimensions that fit within `target_w`x`target_h` while preserving aspect ratio.
 /// This is ImageMagick's default `WxH` sizing behavior; modifiers (`^`, `!`, `>`, `<`) that
 /// change this behavior are routed to the fallback by `needs_fallback` before reaching here.
 fn fit_within(src_w: u32, src_h: u32, target_w: u32, target_h: u32) -> (u32, u32) {
-    let ratio = f64::min(target_w as f64 / src_w as f64, target_h as f64 / src_h as f64);
+    let ratio = f64::min(
+        target_w as f64 / src_w as f64,
+        target_h as f64 / src_h as f64,
+    );
     let new_w = ((src_w as f64 * ratio).round() as u32).max(1);
     let new_h = ((src_h as f64 * ratio).round() as u32).max(1);
     (new_w, new_h)
@@ -298,10 +383,11 @@ fn encode_output(img: RgbaImage, output: &str, quality: Option<u8>) -> Result<()
 pub fn resize_image(input: &str, output: &str, width: u32, height: u32) -> Result<(), SpheneError> {
     check_dimensions(width, height)?;
 
-    let (src_w, src_h) = peek_dimensions(input)?;
+    let data = std::fs::read(input).map_err(|e| SpheneError::IoError(e.to_string()))?;
+    let (src_w, src_h) = peek_dimensions(input, &data)?;
     check_dimensions(src_w, src_h)?;
 
-    let img = open_image(input)?;
+    let img = open_image(input, &data)?;
     let resized = resize_in_linear_space(&img, width, height);
     encode_output(resized, output, None)
 }
@@ -318,10 +404,11 @@ pub fn convert_image(
         check_dimensions(target_w, target_h)?;
     }
 
-    let (src_w, src_h) = peek_dimensions(input)?;
+    let data = std::fs::read(input).map_err(|e| SpheneError::IoError(e.to_string()))?;
+    let (src_w, src_h) = peek_dimensions(input, &data)?;
     check_dimensions(src_w, src_h)?;
 
-    let img = open_image(input)?;
+    let img = open_image(input, &data)?;
 
     let final_img = match resize {
         Some((target_w, target_h)) => {

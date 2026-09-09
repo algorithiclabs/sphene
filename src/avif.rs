@@ -3,10 +3,9 @@
 //! non-OK `avifResult`s) convert to `SpheneError::IoError` — never a panic — so a bad AVIF
 //! file or a misbehaving codec can't bring down the process.
 
-use crate::SpheneError;
+use crate::{SpheneError, MAX_PIXELS};
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
 use libavif_sys as sys;
-use std::ffi::CString;
 use std::os::raw::c_int;
 
 /// Frees the decoder (and the `avifImage` it owns) on every exit path, including early returns.
@@ -65,15 +64,14 @@ fn avif_err(context: &str, result: sys::avifResult) -> SpheneError {
             std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
         }
     };
-    SpheneError::IoError(format!("libavif {context} failed: {reason} (code {result})"))
+    SpheneError::IoError(format!(
+        "libavif {context} failed: {reason} (code {result})"
+    ))
 }
 
-/// Creates a decoder and parses `path`'s container/header (no pixel decode yet). Shared by
+/// Creates a decoder and parses an AVIF buffer's container/header (no pixel decode yet). Shared by
 /// `read_dimensions` (header peek only) and `decode_avif` (which continues on to pixels).
-fn open_and_parse(path: &str) -> Result<DecoderGuard, SpheneError> {
-    let c_path = CString::new(path)
-        .map_err(|_| SpheneError::IoError(format!("AVIF path contains a NUL byte: {path}")))?;
-
+fn open_and_parse(data: &[u8]) -> Result<DecoderGuard, SpheneError> {
     unsafe {
         let decoder_ptr = sys::avifDecoderCreate();
         if decoder_ptr.is_null() {
@@ -82,10 +80,11 @@ fn open_and_parse(path: &str) -> Result<DecoderGuard, SpheneError> {
             ));
         }
         let decoder = DecoderGuard(decoder_ptr);
+        (*decoder.0).imageSizeLimit = MAX_PIXELS as u32;
 
-        let res = sys::avifDecoderSetIOFile(decoder.0, c_path.as_ptr());
+        let res = sys::avifDecoderSetIOMemory(decoder.0, data.as_ptr(), data.len());
         if res != sys::AVIF_RESULT_OK {
-            return Err(avif_err("avifDecoderSetIOFile", res));
+            return Err(avif_err("avifDecoderSetIOMemory", res));
         }
 
         let res = sys::avifDecoderParse(decoder.0);
@@ -97,11 +96,11 @@ fn open_and_parse(path: &str) -> Result<DecoderGuard, SpheneError> {
     }
 }
 
-/// Reads `path`'s pixel dimensions from its container header, without decoding pixel data.
+/// Reads an AVIF buffer's pixel dimensions from its container header, without decoding pixel data.
 /// Used to satisfy the DOS guard's "check before allocating" requirement for AVIF, which
 /// `image::image_dimensions` can't peek (it doesn't know the AVIF format).
-pub fn read_dimensions(path: &str) -> Result<(u32, u32), SpheneError> {
-    let decoder = open_and_parse(path)?;
+pub fn read_dimensions(data: &[u8]) -> Result<(u32, u32), SpheneError> {
+    let decoder = open_and_parse(data)?;
 
     unsafe {
         let avif_image = (*decoder.0).image;
@@ -123,9 +122,9 @@ pub fn read_dimensions(path: &str) -> Result<(u32, u32), SpheneError> {
     }
 }
 
-/// Decodes the AVIF file at `path` into an RGBA image.
-pub fn decode_avif(path: &str) -> Result<DynamicImage, SpheneError> {
-    let decoder = open_and_parse(path)?;
+/// Decodes an AVIF buffer into an RGBA image.
+pub fn decode_avif(data: &[u8]) -> Result<DynamicImage, SpheneError> {
+    let decoder = open_and_parse(data)?;
 
     unsafe {
         let res = sys::avifDecoderNextImage(decoder.0);
@@ -170,7 +169,8 @@ pub fn decode_avif(path: &str) -> Result<DynamicImage, SpheneError> {
         }
 
         let row_bytes = pixels.0.rowBytes as usize;
-        let src = std::slice::from_raw_parts(pixels.0.pixels, row_bytes * height as usize);
+        let buffer_len = rgba_buffer_len(width, height, row_bytes)?;
+        let src = std::slice::from_raw_parts(pixels.0.pixels, buffer_len);
 
         let out: RgbaImage = ImageBuffer::from_fn(width, height, |x, y| {
             let row_start = y as usize * row_bytes;
@@ -223,7 +223,8 @@ pub fn encode_avif(img: &RgbaImage, quality: u8) -> Result<Vec<u8>, SpheneError>
         }
 
         let row_bytes = pixels.0.rowBytes as usize;
-        let dst = std::slice::from_raw_parts_mut(pixels.0.pixels, row_bytes * height as usize);
+        let buffer_len = rgba_buffer_len(width, height, row_bytes)?;
+        let dst = std::slice::from_raw_parts_mut(pixels.0.pixels, buffer_len);
         for y in 0..height {
             let row_start = y as usize * row_bytes;
             for x in 0..width {
@@ -267,6 +268,20 @@ pub fn encode_avif(img: &RgbaImage, quality: u8) -> Result<Vec<u8>, SpheneError>
     }
 }
 
+fn rgba_buffer_len(width: u32, height: u32, row_bytes: usize) -> Result<usize, SpheneError> {
+    let minimum_row_bytes = (width as usize)
+        .checked_mul(4)
+        .ok_or_else(|| SpheneError::IoError("libavif: RGBA row size overflow".to_string()))?;
+    if row_bytes < minimum_row_bytes {
+        return Err(SpheneError::IoError(format!(
+            "libavif: RGBA row stride {row_bytes} is shorter than {minimum_row_bytes}"
+        )));
+    }
+    row_bytes
+        .checked_mul(height as usize)
+        .ok_or_else(|| SpheneError::IoError("libavif: RGBA buffer size overflow".to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,7 +299,8 @@ mod tests {
             std::env::temp_dir().join(format!("sphene_avif_roundtrip_{}.avif", std::process::id()));
         std::fs::write(&path, &encoded).unwrap();
 
-        let decoded = decode_avif(path.to_str().unwrap()).expect("decode_avif should succeed");
+        let data = std::fs::read(&path).unwrap();
+        let decoded = decode_avif(&data).expect("decode_avif should succeed");
         assert_eq!(decoded.width(), 6);
         assert_eq!(decoded.height(), 6);
         assert_eq!(decoded.color(), image::ColorType::Rgba8);
@@ -301,8 +317,8 @@ mod tests {
     }
 
     #[test]
-    fn decode_rejects_missing_file_cleanly() {
-        let err = decode_avif("/nonexistent/path/does_not_exist.avif").unwrap_err();
+    fn decode_rejects_invalid_data_cleanly() {
+        let err = decode_avif(&[]).unwrap_err();
         assert!(matches!(err, SpheneError::IoError(_)));
     }
 
