@@ -23,3 +23,8 @@ target
 # Coding Agents
 .claude
 .serena
+
+# Local image-conversion artifacts; never ship these in the crates.io archive.
+AdobeStock_364009345.jpeg
+out*.webp
+output*.webp

@@ -15,13 +15,13 @@ pub enum SpheneError {
     UnsupportedFormat(String),
     #[error("Unknown error occurred during image processing")]
     Unknown,
-    #[error("Requested dimensions {0}x{1} exceed the 50-megapixel safety limit")]
+    #[error("Requested dimensions {0}x{1} exceed the 250-megapixel safety limit")]
     DimensionsTooLarge(u32, u32),
 }
 
 /// Hard DOS-protection ceiling: total pixel count must stay under this before any buffer allocation.
-// ponytail: 50MP limit prevents 10GB+ linear RGBA allocation. Chunked processing deferred to v0.6.
-pub(crate) const MAX_PIXELS: u64 = 50_000_000;
+// ponytail: 250MP is the v0.1 compatibility ceiling. Chunked processing deferred to v0.6.
+pub(crate) const MAX_PIXELS: u64 = 250_000_000;
 
 /// Rejects dimensions whose pixel count would hit or exceed `MAX_PIXELS`.
 /// Must be called before any pixel buffer is allocated.
@@ -98,12 +98,20 @@ pub fn needs_fallback(args: &[String]) -> bool {
     false
 }
 
-/// Spawns `program` with the exact raw args, inheriting STDOUT/STDERR, and returns its exit code.
-pub fn spawn_fallback(program: &str, args: &[String]) -> Result<i32, SpheneError> {
-    let status = std::process::Command::new(program)
-        .args(args)
-        .status()
-        .map_err(|e| SpheneError::IoError(e.to_string()))?;
+/// Spawns ImageMagick with raw CLI arguments minus Sphene's binary name.
+/// Prefers ImageMagick 7's `magick`, then falls back to ImageMagick 6's `convert`.
+pub fn spawn_fallback(raw_args: &[String]) -> Result<i32, SpheneError> {
+    let args = raw_args.get(1..).unwrap_or_default();
+    let status = match std::process::Command::new("magick").args(args).status() {
+        Ok(status) => status,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::process::Command::new("convert")
+                .args(args)
+                .status()
+                .map_err(|e| SpheneError::IoError(e.to_string()))?
+        }
+        Err(error) => return Err(SpheneError::IoError(error.to_string())),
+    };
     Ok(status.code().unwrap_or(1))
 }
 
@@ -157,14 +165,6 @@ mod fallback_tests {
             "convert", "in.jpg", "-resize", "garbage"
         ])));
     }
-
-    #[test]
-    fn fallback_proxy_pipes_exit_code() {
-        // Stands in for `magick`: any program is valid here, only the exit-code
-        // passthrough plumbing is under test.
-        let code = spawn_fallback("sh", &args(&["-c", "exit 42"])).unwrap();
-        assert_eq!(code, 42);
-    }
 }
 
 #[cfg(test)]
@@ -173,7 +173,7 @@ mod dos_guard_tests {
 
     #[test]
     fn dimensions_at_or_over_limit_abort_cleanly() {
-        // 20_000 * 20_000 = 400_000_000, over the 50M ceiling.
+        // 20_000 * 20_000 = 400_000_000, over the 250MP ceiling.
         let err = check_dimensions(20_000, 20_000).unwrap_err();
         assert!(matches!(
             err,
@@ -183,10 +183,10 @@ mod dos_guard_tests {
 
     #[test]
     fn dimensions_at_exact_limit_abort_cleanly() {
-        let err = check_dimensions(10_000, 5_000).unwrap_err();
+        let err = check_dimensions(25_000, 10_000).unwrap_err();
         assert!(matches!(
             err,
-            SpheneError::DimensionsTooLarge(10_000, 5_000)
+            SpheneError::DimensionsTooLarge(25_000, 10_000)
         ));
     }
 
