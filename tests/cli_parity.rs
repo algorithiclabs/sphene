@@ -82,3 +82,15 @@ fn im_v6_and_v7_native_syntaxes_produce_expected_output() {
     let _ = std::fs::remove_file(&input);
     let _ = std::fs::remove_file(&output);
 }
+
+#[test]
+fn sphene_owns_help_and_version_flags() {
+    for flag in ["--help", "--version"] {
+        Command::cargo_bin("sphene")
+            .expect("sphene binary not built")
+            .arg(flag)
+            .assert()
+            .success()
+            .stdout(predicates::str::contains("sphene"));
+    }
+}

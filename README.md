@@ -1,29 +1,45 @@
-# sphene
+# Sphene
 
-Memory-safe-core ImageMagick-compatible image conversion for Debian-based Linux (glibc). Native operations keep RGBA data through the pipeline and resize RGB in linear light.
+Memory-safe, ImageMagick-compatible image conversion for Debian-based Linux systems using glibc.
+
+Sphene handles common file-to-file conversions natively and delegates syntax it does not support to an installed ImageMagick 6 or 7 executable. The native pipeline keeps images in RGBA form, resizes in linear RGB, and applies the 250-megapixel allocation guard before decoding pixel data.
+
+## Status
+
+`0.1.0` is the first functional release. The interface is intentionally narrow: file paths in and out, with ImageMagick fallback for broader compatibility.
 
 ## Installation
 
 ```bash
-cargo install sphene --version 0.1.0-alpha.1
+cargo install sphene --version 0.1.0
 ```
 
-HEIC support requires the system `libheif` library.
+HEIC/HEIF support requires the system `libheif` runtime. Building from source also requires the native dependencies documented by `libheif-rs` and `libavif-sys`.
 
 ## Usage
 
-Sphene accepts ImageMagick v6 and v7 conversion forms:
-
 ```bash
-magick input.jpg output.webp
-convert input.jpg output.webp
-magick convert input.jpg -resize 800x600 -quality 80 output.webp
+sphene input.jpg output.png
+sphene convert input.jpg -resize 800x600 output.webp
+sphene convert input.jpg -quality 80 output.jpg
+sphene convert input.jpg -resize 800x600 -quality 80 output.webp
 ```
 
-Native support covers JPEG, PNG, WebP, AVIF, HEIC, and HEIF file paths, with `-resize WxH` and `-quality N`. Dimensions must remain below 250 megapixels before allocation.
+Native operations support JPEG, PNG, WebP, AVIF, and HEIC/HEIF input where the required codec is available. Output format is inferred from the destination extension. `-quality` applies to JPEG, WebP, and AVIF; other formats ignore it. The resize form uses exact dimensions and Lanczos3 filtering.
 
-Unsupported flags, extensions, standard-input syntax, and ImageMagick resize modifiers are proxied to system ImageMagick. The proxy prefers `magick` and uses `convert` when `magick` is unavailable. It preserves ImageMagick's output streams and exit code.
+Unsupported flags, resize modifiers, unknown extensions, and `-` trigger the ImageMagick fallback. Sphene prefers `magick` and falls back to `convert`, passing the original arguments and exit status through. Install ImageMagick if you need that path.
 
-## Limits
+## Limitations
 
-File-path input and output only. STDIN/STDOUT conversion, color-profile management, GUI, and non-Debian/glibc targets are outside v0.1.
+- File paths only. Standard input and output streams are not supported natively.
+- Color-profile management, GUI operations, and ImageMagick's full feature set use the fallback and require ImageMagick.
+- The native path rejects dimensions at or above 250,000,000 pixels before allocating an image buffer.
+- HEIC/HEIF codec availability depends on the host's `libheif` installation.
+
+## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Release history is in [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+Licensed under either [Apache License 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT) at your option.

@@ -1,14 +1,15 @@
 [package]
 name = "sphene"
-version = "0.1.0-alpha.1"
+version = "0.1.0"
 edition = "2021"
-authors = ["Algorithic domainique@algorithic.com"]
-description = "A high-performance, modern CLI tool for core image processing, editing, and pixel manipulation."
+authors = ["Algorithic Labs"]
+description = "Memory-safe, ImageMagick-compatible image conversion CLI"
 readme = "README.md"
 repository = "https://github.com/algorithiclabs/sphene.git"
 license = "MIT OR Apache-2.0"
 keywords = ["image", "cli", "processing", "graphics", "bitmap"]
 categories = ["command-line-utilities", "multimedia::images"]
+exclude = ["AGENTS.md", "CLAUDE.md", "Dockerfile", "doc/"]
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
