@@ -8,6 +8,8 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    env:
+      CMAKE_ARGS: -DAOM_TARGET_CPU=generic
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
