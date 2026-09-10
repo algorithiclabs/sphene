@@ -8,15 +8,15 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    env:
-      CMAKE_ARGS: -DAOM_TARGET_CPU=generic
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - name: Install native dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libclang-dev libheif-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install --yes libaom-dev libclang-dev libheif-dev pkg-config
+      - name: Configure system libaom
+        run: echo "LIB_AOM_STATIC_LIB_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV" && echo "LIB_AOM_INCLUDE_PATH=/usr/include" >> "$GITHUB_ENV" && echo "LIB_AOM_PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> "$GITHUB_ENV"
       - run: cargo fmt -- --check
       - run: cargo check
       - run: cargo test
