@@ -16,7 +16,6 @@ clap = { version = "4.4", features = ["derive"] }
 thiserror = "1.0"
 image = "0.25"
 libavif-sys = { version = "0.17", default-features = false, features = ["codec-aom"] }
-libheif-rs = "=1.0.2"
 webp = "0.3.1"
 
 [dev-dependencies]

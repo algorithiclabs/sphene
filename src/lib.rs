@@ -4,7 +4,7 @@ use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
 use std::fs::File;
-use std::io::Cursor;
+use std::path::Path;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -22,6 +22,8 @@ pub enum SpheneError {
 /// Hard DOS-protection ceiling: total pixel count must stay under this before any buffer allocation.
 // ponytail: 250MP is the v0.1 compatibility ceiling. Chunked processing deferred to v0.6.
 pub(crate) const MAX_PIXELS: u64 = 250_000_000;
+/// Maximum native input file size before opening or decoding it.
+pub(crate) const MAX_INPUT_BYTES: u64 = 50 * 1024 * 1024;
 
 /// Rejects dimensions whose pixel count would hit or exceed `MAX_PIXELS`.
 /// Must be called before any pixel buffer is allocated.
@@ -36,7 +38,7 @@ pub fn check_dimensions(width: u32, height: u32) -> Result<(), SpheneError> {
 const NATIVE_FLAGS: [&str; 2] = ["-resize", "-quality"];
 /// ImageMagick resize modifiers (`!`, `>`, `<`, `^`) that the native resize path doesn't implement.
 const RESIZE_MODIFIERS: [char; 4] = ['!', '>', '<', '^'];
-const NATIVE_EXTENSIONS: [&str; 7] = ["avif", "heic", "heif", "jpeg", "jpg", "png", "webp"];
+const NATIVE_EXTENSIONS: [&str; 5] = ["avif", "jpeg", "jpg", "png", "webp"];
 
 fn has_native_extension(path: &str) -> bool {
     std::path::Path::new(path)
@@ -91,6 +93,13 @@ pub fn needs_fallback(args: &[String]) -> bool {
             {
                 return true;
             }
+            if arg == "-resize"
+                && !args
+                    .get(i + 1)
+                    .is_some_and(|value| native_resize_geometry(value))
+            {
+                return true;
+            }
             i += 1;
         }
         i += 1;
@@ -98,21 +107,41 @@ pub fn needs_fallback(args: &[String]) -> bool {
     false
 }
 
+fn native_resize_geometry(value: &str) -> bool {
+    let Some((width, height)) = value.split_once('x') else {
+        return false;
+    };
+    width.parse::<u32>().is_ok() && height.parse::<u32>().is_ok()
+}
+
 /// Spawns ImageMagick with raw CLI arguments minus Sphene's binary name.
 /// Prefers ImageMagick 7's `magick`, then falls back to ImageMagick 6's `convert`.
 pub fn spawn_fallback(raw_args: &[String]) -> Result<i32, SpheneError> {
     let args = raw_args.get(1..).unwrap_or_default();
-    let status = match std::process::Command::new("magick").args(args).status() {
-        Ok(status) => status,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            std::process::Command::new("convert")
-                .args(args)
-                .status()
-                .map_err(|e| SpheneError::IoError(e.to_string()))?
+    let current_exe = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.canonicalize().ok());
+    for executable in ["/usr/bin/magick", "/usr/bin/convert"] {
+        let path = Path::new(executable);
+        if !path.exists() || current_exe.as_deref() == Some(path) {
+            continue;
         }
-        Err(error) => return Err(SpheneError::IoError(error.to_string())),
-    };
-    Ok(status.code().unwrap_or(1))
+        let forwarded_args = if executable.ends_with("/convert")
+            && args.first().is_some_and(|arg| arg == "convert")
+        {
+            &args[1..]
+        } else {
+            args
+        };
+        let status = std::process::Command::new(path)
+            .args(forwarded_args)
+            .status()
+            .map_err(|e| SpheneError::IoError(e.to_string()))?;
+        return Ok(status.code().unwrap_or(1));
+    }
+    Err(SpheneError::IoError(
+        "ImageMagick executable not found".to_string(),
+    ))
 }
 
 #[cfg(test)]
@@ -160,8 +189,8 @@ mod fallback_tests {
     }
 
     #[test]
-    fn malformed_native_flag_stays_native() {
-        assert!(!needs_fallback(&args(&[
+    fn malformed_resize_geometry_falls_back() {
+        assert!(needs_fallback(&args(&[
             "convert", "in.jpg", "-resize", "garbage"
         ])));
     }
@@ -170,6 +199,16 @@ mod fallback_tests {
 #[cfg(test)]
 mod dos_guard_tests {
     use super::*;
+
+    #[test]
+    fn input_files_over_50_mib_are_rejected_before_decode() {
+        let path = std::env::temp_dir().join(format!("sphene_input_limit_{}", std::process::id()));
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(MAX_INPUT_BYTES + 1).unwrap();
+        let err = check_input_size(path.to_str().unwrap()).unwrap_err();
+        assert!(matches!(err, SpheneError::IoError(message) if message.contains("50 MiB")));
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn dimensions_at_or_over_limit_abort_cleanly() {
@@ -270,16 +309,12 @@ fn linear_to_srgb(c: f32) -> f32 {
 /// carried through the transfer-function conversions untouched (it's a coverage value, not
 /// a light intensity) but is still resampled by the Lanczos3 filter along with the color data.
 fn resize_in_linear_space(img: &DynamicImage, width: u32, height: u32) -> RgbaImage {
-    let srgb_f32 = img.to_rgba32f();
-    let linear = ImageBuffer::from_fn(srgb_f32.width(), srgb_f32.height(), |x, y| {
-        let p = srgb_f32.get_pixel(x, y);
-        Rgba([
-            srgb_to_linear(p[0]),
-            srgb_to_linear(p[1]),
-            srgb_to_linear(p[2]),
-            p[3],
-        ])
-    });
+    let mut linear = img.to_rgba32f();
+    for pixel in linear.pixels_mut() {
+        pixel[0] = srgb_to_linear(pixel[0]);
+        pixel[1] = srgb_to_linear(pixel[1]);
+        pixel[2] = srgb_to_linear(pixel[2]);
+    }
 
     let resized_linear = image::imageops::resize(&linear, width, height, FilterType::Lanczos3);
 
@@ -296,29 +331,43 @@ fn resize_in_linear_space(img: &DynamicImage, width: u32, height: u32) -> RgbaIm
 
 /// Peeks `input`'s pixel dimensions without decoding it, for the DOS guard. AVIF isn't
 /// supported by `image`'s own format sniffing, so it's routed to the libavif wrapper instead.
-fn peek_dimensions(input: &str, data: &[u8]) -> Result<(u32, u32), SpheneError> {
+fn check_input_size(input: &str) -> Result<(), SpheneError> {
+    let size = std::fs::metadata(input)
+        .map_err(|e| SpheneError::IoError(e.to_string()))?
+        .len();
+    if size > MAX_INPUT_BYTES {
+        return Err(SpheneError::IoError(format!(
+            "Input file exceeds 50 MiB limit: {size} bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn peek_dimensions(input: &str) -> Result<(u32, u32), SpheneError> {
     if matches!(
         image::ImageFormat::from_path(input),
         Ok(image::ImageFormat::Avif)
     ) {
-        return avif::read_dimensions(data);
+        return avif::read_dimensions(input);
     }
-    image::ImageReader::new(Cursor::new(data))
-        .with_guessed_format()
+    image::ImageReader::open(input)
         .map_err(|e| SpheneError::IoError(e.to_string()))?
         .into_dimensions()
         .map_err(|e| SpheneError::IoError(e.to_string()))
 }
 
 /// Decodes `input`, routing AVIF through the libavif wrapper and everything else through `image`.
-fn open_image(input: &str, data: &[u8]) -> Result<DynamicImage, SpheneError> {
+fn open_image(input: &str) -> Result<DynamicImage, SpheneError> {
     if matches!(
         image::ImageFormat::from_path(input),
         Ok(image::ImageFormat::Avif)
     ) {
-        return avif::decode_avif(data);
+        return avif::decode_avif(input);
     }
-    image::load_from_memory(data).map_err(|e| SpheneError::IoError(e.to_string()))
+    image::ImageReader::open(input)
+        .map_err(|e| SpheneError::IoError(e.to_string()))?
+        .decode()
+        .map_err(|e| SpheneError::IoError(e.to_string()))
 }
 
 /// Computes dimensions that fit within `target_w`x`target_h` while preserving aspect ratio.
@@ -379,15 +428,15 @@ fn encode_output(img: RgbaImage, output: &str, quality: Option<u8>) -> Result<()
     }
 }
 
-/// Resizes `input` to exactly `width`x`height` (no aspect-ratio adjustment) and writes it to `output`.
+/// Resizes `input` within a `width`x`height` bounding box and writes it to `output`.
 pub fn resize_image(input: &str, output: &str, width: u32, height: u32) -> Result<(), SpheneError> {
     check_dimensions(width, height)?;
 
-    let data = std::fs::read(input).map_err(|e| SpheneError::IoError(e.to_string()))?;
-    let (src_w, src_h) = peek_dimensions(input, &data)?;
+    check_input_size(input)?;
+    let (src_w, src_h) = peek_dimensions(input)?;
     check_dimensions(src_w, src_h)?;
 
-    let img = open_image(input, &data)?;
+    let img = open_image(input)?;
     let resized = resize_in_linear_space(&img, width, height);
     encode_output(resized, output, None)
 }
@@ -404,11 +453,11 @@ pub fn convert_image(
         check_dimensions(target_w, target_h)?;
     }
 
-    let data = std::fs::read(input).map_err(|e| SpheneError::IoError(e.to_string()))?;
-    let (src_w, src_h) = peek_dimensions(input, &data)?;
+    check_input_size(input)?;
+    let (src_w, src_h) = peek_dimensions(input)?;
     check_dimensions(src_w, src_h)?;
 
-    let img = open_image(input, &data)?;
+    let img = open_image(input)?;
 
     let final_img = match resize {
         Some((target_w, target_h)) => {

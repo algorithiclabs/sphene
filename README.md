@@ -14,7 +14,7 @@ Sphene handles common file-to-file conversions natively and delegates syntax it 
 cargo install sphene --version 0.1.0
 ```
 
-HEIC/HEIF support requires the system `libheif` runtime. Building from source also requires the native dependencies documented by `libheif-rs` and `libavif-sys`.
+AVIF builds require the native dependencies documented by `libavif-sys`.
 
 ## Usage
 
@@ -25,7 +25,7 @@ sphene convert input.jpg -quality 80 output.jpg
 sphene convert input.jpg -resize 800x600 -quality 80 output.webp
 ```
 
-Native operations support JPEG, PNG, WebP, AVIF, and HEIC/HEIF input where the required codec is available. Output format is inferred from the destination extension. `-quality` applies to JPEG, WebP, and AVIF; other formats ignore it. The resize form uses exact dimensions and Lanczos3 filtering.
+Native operations support JPEG, PNG, WebP, and AVIF. HEIC/HEIF is delegated to ImageMagick. Output format is inferred from the destination extension. `-quality` applies to JPEG, WebP, and AVIF; other formats ignore it. The resize form preserves aspect ratio inside the requested bounding box and uses Lanczos3 filtering.
 
 Unsupported flags, resize modifiers, unknown extensions, and `-` trigger the ImageMagick fallback. Sphene prefers `magick` and falls back to `convert`, passing the original arguments and exit status through. Install ImageMagick if you need that path.
 
@@ -34,7 +34,7 @@ Unsupported flags, resize modifiers, unknown extensions, and `-` trigger the Ima
 - File paths only. Standard input and output streams are not supported natively.
 - Color-profile management, GUI operations, and ImageMagick's full feature set use the fallback and require ImageMagick.
 - The native path rejects dimensions at or above 250,000,000 pixels before allocating an image buffer.
-- HEIC/HEIF codec availability depends on the host's `libheif` installation.
+- Native input files are limited to 50 MiB before decoding.
 
 ## Development
 

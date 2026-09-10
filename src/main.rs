@@ -23,16 +23,16 @@ fn parse_resize(s: &str) -> Option<(u32, u32)> {
 
 fn main() -> Result<(), SpheneError> {
     let raw_args = std::env::args().collect::<Vec<String>>();
-    if raw_args
-        .get(1)
-        .is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "--version" || arg == "-V")
-    {
-        Cli::parse_from(&raw_args);
-        return Ok(());
-    }
     let mut cleaned_args = raw_args.clone();
     if cleaned_args.len() > 1 && cleaned_args[1] == "convert" {
         cleaned_args.remove(1);
+    }
+    if cleaned_args
+        .get(1)
+        .is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "--version" || arg == "-V")
+    {
+        Cli::parse_from(&cleaned_args);
+        return Ok(());
     }
 
     if needs_fallback(&cleaned_args) {

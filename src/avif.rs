@@ -6,6 +6,7 @@
 use crate::{SpheneError, MAX_PIXELS};
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
 use libavif_sys as sys;
+use std::ffi::CString;
 use std::os::raw::c_int;
 
 /// Frees the decoder (and the `avifImage` it owns) on every exit path, including early returns.
@@ -69,9 +70,9 @@ fn avif_err(context: &str, result: sys::avifResult) -> SpheneError {
     ))
 }
 
-/// Creates a decoder and parses an AVIF buffer's container/header (no pixel decode yet). Shared by
+/// Creates a decoder and parses an AVIF file's container/header (no pixel decode yet). Shared by
 /// `read_dimensions` (header peek only) and `decode_avif` (which continues on to pixels).
-fn open_and_parse(data: &[u8]) -> Result<DecoderGuard, SpheneError> {
+fn open_and_parse(path: &str) -> Result<DecoderGuard, SpheneError> {
     unsafe {
         let decoder_ptr = sys::avifDecoderCreate();
         if decoder_ptr.is_null() {
@@ -82,9 +83,11 @@ fn open_and_parse(data: &[u8]) -> Result<DecoderGuard, SpheneError> {
         let decoder = DecoderGuard(decoder_ptr);
         (*decoder.0).imageSizeLimit = MAX_PIXELS as u32;
 
-        let res = sys::avifDecoderSetIOMemory(decoder.0, data.as_ptr(), data.len());
+        let path = CString::new(path)
+            .map_err(|e| SpheneError::IoError(format!("invalid AVIF path: {e}")))?;
+        let res = sys::avifDecoderSetIOFile(decoder.0, path.as_ptr());
         if res != sys::AVIF_RESULT_OK {
-            return Err(avif_err("avifDecoderSetIOMemory", res));
+            return Err(avif_err("avifDecoderSetIOFile", res));
         }
 
         let res = sys::avifDecoderParse(decoder.0);
@@ -96,11 +99,11 @@ fn open_and_parse(data: &[u8]) -> Result<DecoderGuard, SpheneError> {
     }
 }
 
-/// Reads an AVIF buffer's pixel dimensions from its container header, without decoding pixel data.
+/// Reads an AVIF file's pixel dimensions from its container header, without decoding pixel data.
 /// Used to satisfy the DOS guard's "check before allocating" requirement for AVIF, which
 /// `image::image_dimensions` can't peek (it doesn't know the AVIF format).
-pub fn read_dimensions(data: &[u8]) -> Result<(u32, u32), SpheneError> {
-    let decoder = open_and_parse(data)?;
+pub fn read_dimensions(path: &str) -> Result<(u32, u32), SpheneError> {
+    let decoder = open_and_parse(path)?;
 
     unsafe {
         let avif_image = (*decoder.0).image;
@@ -122,9 +125,9 @@ pub fn read_dimensions(data: &[u8]) -> Result<(u32, u32), SpheneError> {
     }
 }
 
-/// Decodes an AVIF buffer into an RGBA image.
-pub fn decode_avif(data: &[u8]) -> Result<DynamicImage, SpheneError> {
-    let decoder = open_and_parse(data)?;
+/// Decodes an AVIF file into an RGBA image.
+pub fn decode_avif(path: &str) -> Result<DynamicImage, SpheneError> {
+    let decoder = open_and_parse(path)?;
 
     unsafe {
         let res = sys::avifDecoderNextImage(decoder.0);
@@ -299,8 +302,7 @@ mod tests {
             std::env::temp_dir().join(format!("sphene_avif_roundtrip_{}.avif", std::process::id()));
         std::fs::write(&path, &encoded).unwrap();
 
-        let data = std::fs::read(&path).unwrap();
-        let decoded = decode_avif(&data).expect("decode_avif should succeed");
+        let decoded = decode_avif(path.to_str().unwrap()).expect("decode_avif should succeed");
         assert_eq!(decoded.width(), 6);
         assert_eq!(decoded.height(), 6);
         assert_eq!(decoded.color(), image::ColorType::Rgba8);
@@ -318,7 +320,7 @@ mod tests {
 
     #[test]
     fn decode_rejects_invalid_data_cleanly() {
-        let err = decode_avif(&[]).unwrap_err();
+        let err = decode_avif("/nonexistent/sphene-invalid.avif").unwrap_err();
         assert!(matches!(err, SpheneError::IoError(_)));
     }
 
