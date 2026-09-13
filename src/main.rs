@@ -5,7 +5,7 @@ use sphene::{convert_image, needs_fallback, spawn_fallback, SpheneError};
 #[command(
     name = "sphene",
     author,
-    version,
+    version = env!("CARGO_PKG_VERSION"),
     about = "Memory-safe image processing CLI with ImageMagick fallback"
 )]
 struct Cli {
@@ -22,6 +22,7 @@ fn parse_resize(s: &str) -> Option<(u32, u32)> {
 }
 
 fn main() -> Result<(), SpheneError> {
+    env_logger::init();
     let raw_args = std::env::args().collect::<Vec<String>>();
     let mut cleaned_args = raw_args.clone();
     if cleaned_args.len() > 1 && cleaned_args[1] == "convert" {

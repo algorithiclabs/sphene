@@ -70,9 +70,14 @@ fn native_input_output(args: &[String]) -> Option<(&str, &str)> {
 /// Strangler Fig gate: scans raw CLI args for syntax the native engine can't handle
 /// (STDIN `-`, resize modifiers, or any flag outside `NATIVE_FLAGS`) so parsing can
 /// halt before clap ever touches them, per the PRD's <5ms handoff requirement.
+fn log_fallback(reason: &str) {
+    log::warn!("Strangler Fig proxy triggered: {reason}");
+}
+
 pub fn needs_fallback(args: &[String]) -> bool {
     if let Some((input, output)) = native_input_output(args) {
         if !has_native_extension(input) || !has_native_extension(output) {
+            log_fallback("unsupported input or output extension");
             return true;
         }
     }
@@ -81,16 +86,19 @@ pub fn needs_fallback(args: &[String]) -> bool {
     while i < args.len() {
         let arg = &args[i];
         if arg == "-" {
+            log_fallback("STDIN input is unsupported");
             return true;
         }
         if arg.starts_with('-') && arg.len() > 1 {
             if !NATIVE_FLAGS.contains(&arg.as_str()) {
+                log_fallback("unsupported flag");
                 return true;
             }
             if args
                 .get(i + 1)
                 .is_some_and(|v| v.contains(RESIZE_MODIFIERS))
             {
+                log_fallback("resize modifier is unsupported");
                 return true;
             }
             if arg == "-resize"
@@ -98,6 +106,7 @@ pub fn needs_fallback(args: &[String]) -> bool {
                     .get(i + 1)
                     .is_some_and(|value| native_resize_geometry(value))
             {
+                log_fallback("invalid resize geometry");
                 return true;
             }
             i += 1;
