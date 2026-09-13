@@ -21,7 +21,14 @@ fn parse_resize(s: &str) -> Option<(u32, u32)> {
     Some((w.parse().ok()?, h.parse().ok()?))
 }
 
-fn main() -> Result<(), SpheneError> {
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), SpheneError> {
     env_logger::init();
     let raw_args = std::env::args().collect::<Vec<String>>();
     let mut cleaned_args = raw_args.clone();
