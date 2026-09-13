@@ -6,12 +6,12 @@ Sphene handles common file-to-file conversions natively and delegates syntax it 
 
 ## Status
 
-`0.1.0` is the first functional release. The interface is intentionally narrow: file paths in and out, with ImageMagick fallback for broader compatibility.
+`0.1.1` is the current functional release. The interface is intentionally narrow: file paths in and out, with ImageMagick fallback for broader compatibility.
 
 ## Installation
 
 ```bash
-cargo install sphene --version 0.1.0
+cargo install sphene --version 0.1.1
 ```
 
 AVIF builds require the native dependencies documented by `libavif-sys`.
