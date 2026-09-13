@@ -1,6 +1,6 @@
 [package]
 name = "sphene"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Algorithic Labs"]
 description = "Memory-safe, ImageMagick-compatible image conversion CLI"
@@ -13,6 +13,8 @@ exclude = ["AGENTS.md", "CLAUDE.md", "Dockerfile", "doc/"]
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
 thiserror = "1.0"
 image = "0.25"
 libavif-sys = { version = "0.17", default-features = false, features = ["codec-aom"] }

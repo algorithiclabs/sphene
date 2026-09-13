@@ -2,6 +2,12 @@
 
 All notable changes to Sphene are documented here.
 
+## [0.1.1] - 2026-09-13
+
+- Added library-safe logging for Strangler Fig proxy decisions.
+- Initialized CLI logging from `RUST_LOG`.
+- Wired `--version` to the crate version.
+
 ## [0.1.0] - 2026-09-10
 
 First functional release.
