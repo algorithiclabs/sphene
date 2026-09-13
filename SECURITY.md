@@ -1,9 +1,21 @@
 # Security policy
 
-## Supported versions
-
-Only the latest released version receives security fixes.
-
 ## Reporting a vulnerability
 
-Do not open a public issue for a suspected vulnerability. Use GitHub's private security advisory flow for this repository. Include the affected version, reproduction steps, expected impact, and any suggested mitigation.
+Do not open a public issue for a suspected vulnerability.
+
+Report it privately through GitHub's **Report a vulnerability** button on the repository's Security tab. If private vulnerability reporting is unavailable, contact the maintainers through the private security-advisory flow before disclosing details publicly.
+
+Include:
+
+- affected version or commit;
+- operating system and ImageMagick/libheif/libavif versions, if relevant;
+- minimal reproduction steps or proof of concept;
+- expected and observed behavior;
+- impact assessment and suggested mitigation, if known.
+
+Allow maintainers reasonable time to investigate and coordinate disclosure. Do not include secrets or personal data in the report.
+
+## Scope
+
+Security reports include native image decoding, ImageMagick fallback argument forwarding, resource-limit bypasses, unsafe file or delegate access, and vulnerabilities in the shipped container configuration.

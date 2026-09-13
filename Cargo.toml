@@ -9,7 +9,7 @@ repository = "https://github.com/algorithiclabs/sphene.git"
 license = "MIT OR Apache-2.0"
 keywords = ["image", "cli", "processing", "graphics", "bitmap"]
 categories = ["command-line-utilities", "multimedia::images"]
-exclude = ["AGENTS.md", "CLAUDE.md", "Dockerfile", "doc/", "stress-test/"]
+exclude = ["AGENTS.md", "CLAUDE.md", "Dockerfile", "doc/", "policy.xml", "stress-test/"]
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }

@@ -67,7 +67,7 @@ Unsupported flags, resize modifiers, unknown extensions, and `-` trigger the Ima
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Reproducible benchmark evidence is in [doc/benchmark-report.md](doc/benchmark-report.md). Release history is in [CHANGELOG.md](CHANGELOG.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Release history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

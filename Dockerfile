@@ -15,6 +15,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && \
     apt-get install -y imagemagick && \
     rm -rf /var/lib/apt/lists/*
+COPY policy.xml /etc/ImageMagick-6/policy.xml
 
 COPY --from=builder /app/target/release/sphene /usr/local/bin/sphene
 
