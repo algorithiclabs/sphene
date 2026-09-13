@@ -4,9 +4,8 @@ language: en-US
 
 tone_instructions: |
   Be concise and evidence-driven. Prioritize correctness, security, data-loss
-  risks, compatibility, and performance over style. Report confirmed defects
-  before suggestions. Do not report formatting issues handled by rustfmt or
-  lint issues handled by clippy.
+  risks, compatibility, and performance over style. Report defects before
+  suggestions; skip rustfmt and clippy issues.
 
 reviews:
   profile: assertive
