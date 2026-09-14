@@ -4,7 +4,7 @@
 
 Do not open a public issue for a suspected vulnerability.
 
-Report it privately through GitHub's **Report a vulnerability** button on the repository's Security tab. If private vulnerability reporting is unavailable, contact the maintainers through the private security-advisory flow before disclosing details publicly.
+Report it privately through GitHub's **Report a vulnerability** button on the repository's Security tab. If private vulnerability reporting is unavailable, email **domainique@algorithic.com** before disclosing details publicly.
 
 Include:
 

@@ -182,10 +182,21 @@ pub fn spawn_fallback(raw_args: &[String]) -> Result<i32, SpheneError> {
         } else {
             args
         };
-        let status = std::process::Command::new(path)
+        let status = match std::process::Command::new(path)
             .args(forwarded_args)
             .status()
-            .map_err(|e| SpheneError::IoError(e.to_string()))?;
+        {
+            Ok(status) => status,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                continue
+            }
+            Err(error) => return Err(SpheneError::IoError(error.to_string())),
+        };
         return Ok(status.code().unwrap_or(1));
     }
     Err(SpheneError::IoError(

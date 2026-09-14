@@ -7,6 +7,7 @@ All notable changes to Sphene are documented here.
 - Improved ImageMagick fallback discovery across Debian, macOS, and `PATH`.
 - Added human-readable CLI errors.
 - Added Docker build-context hygiene.
+- Hardened the Docker ImageMagick policy with a 512 MiB memory cap and blocked remote and dangerous coders.
 
 ## [0.1.1] - 2026-09-13
 
