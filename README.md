@@ -12,7 +12,7 @@ A 107 KB solid-color PNG can declare dimensions of 30,000 × 30,000 pixels: 900 
 - **Processing time:** 16.36s
 - **Risk:** On a memory-constrained cloud worker, an allocation of this size could trigger OOM termination and take down the worker.
 
-**Sphene (v0.1.1)**
+**Sphene (v0.1.2)**
 
 - **Peak memory:** 2.7 MB
 - **Processing time:** < 0.01s
@@ -35,12 +35,12 @@ This is one reproducible fixture, not a universal speed claim. Measure represent
 
 ## Status
 
-`0.1.1` is the current functional release. The interface is intentionally narrow: file paths in and out, with ImageMagick fallback for broader compatibility.
+`0.1.2` is the current functional release. The interface is intentionally narrow: file paths in and out, with ImageMagick fallback for broader compatibility.
 
 ## Installation
 
 ```bash
-cargo install sphene --version 0.1.1
+cargo install sphene --version 0.1.2
 ```
 
 AVIF builds require the native dependencies documented by `libavif-sys`.

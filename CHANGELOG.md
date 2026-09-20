@@ -2,7 +2,7 @@
 
 All notable changes to Sphene are documented here.
 
-## [0.1.2] - Unreleased
+## [0.1.2] - 2026-09-21
 
 - Improved ImageMagick fallback discovery across Debian, macOS, and `PATH`.
 - Added human-readable CLI errors.
