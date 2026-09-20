@@ -133,7 +133,7 @@ fn imagemagick_candidates() -> Vec<std::path::PathBuf> {
             "/usr/local/bin/convert",
         ]
     } else if cfg!(target_os = "windows") {
-        vec!["magick.exe", "convert.exe"]
+        Vec::new()
     } else {
         vec![
             "/usr/bin/magick",
@@ -144,11 +144,16 @@ fn imagemagick_candidates() -> Vec<std::path::PathBuf> {
     };
 
     let mut candidates = Vec::new();
-    for executable in ["magick", "convert"] {
+    let executables: &[&str] = if cfg!(target_os = "windows") {
+        &["magick"]
+    } else {
+        &["magick", "convert"]
+    };
+    for executable in executables {
         for known_path in &known_paths {
             if std::path::Path::new(known_path)
                 .file_stem()
-                .is_some_and(|name| name == executable)
+                .is_some_and(|name| name == *executable)
             {
                 let candidate = std::path::PathBuf::from(known_path);
                 if !candidates.contains(&candidate) {
@@ -159,6 +164,9 @@ fn imagemagick_candidates() -> Vec<std::path::PathBuf> {
 
         if let Some(path) = std::env::var_os("PATH") {
             for directory in std::env::split_paths(&path) {
+                if !directory.is_absolute() {
+                    continue;
+                }
                 let candidate = directory.join(if cfg!(target_os = "windows") {
                     format!("{executable}.exe")
                 } else {
