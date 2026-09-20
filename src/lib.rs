@@ -143,14 +143,22 @@ fn imagemagick_candidates() -> Vec<std::path::PathBuf> {
         ]
     };
 
-    let mut candidates = known_paths
-        .into_iter()
-        .map(std::path::PathBuf::from)
-        .collect::<Vec<_>>();
+    let mut candidates = Vec::new();
+    for executable in ["magick", "convert"] {
+        for known_path in &known_paths {
+            if std::path::Path::new(known_path)
+                .file_stem()
+                .is_some_and(|name| name == executable)
+            {
+                let candidate = std::path::PathBuf::from(known_path);
+                if !candidates.contains(&candidate) {
+                    candidates.push(candidate);
+                }
+            }
+        }
 
-    if let Some(path) = std::env::var_os("PATH") {
-        for directory in std::env::split_paths(&path) {
-            for executable in ["magick", "convert"] {
+        if let Some(path) = std::env::var_os("PATH") {
+            for directory in std::env::split_paths(&path) {
                 let candidate = directory.join(if cfg!(target_os = "windows") {
                     format!("{executable}.exe")
                 } else {

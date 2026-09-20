@@ -35,12 +35,12 @@ fn run() -> Result<(), SpheneError> {
     if cleaned_args.len() > 1 && cleaned_args[1] == "convert" {
         cleaned_args.remove(1);
     }
-    if cleaned_args
-        .get(1)
-        .is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "--version" || arg == "-V")
+    if let Some(flag) = cleaned_args
+        .iter()
+        .skip(1)
+        .find(|arg| matches!(arg.as_str(), "--help" | "-h" | "--version" | "-V"))
     {
-        Cli::parse_from(&cleaned_args);
-        return Ok(());
+        Cli::parse_from([cleaned_args[0].clone(), flag.clone()]);
     }
 
     if needs_fallback(&cleaned_args) {
