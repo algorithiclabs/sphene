@@ -21,19 +21,26 @@ fn parse_resize(s: &str) -> Option<(u32, u32)> {
     Some((w.parse().ok()?, h.parse().ok()?))
 }
 
-fn main() -> Result<(), SpheneError> {
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), SpheneError> {
     env_logger::init();
     let raw_args = std::env::args().collect::<Vec<String>>();
     let mut cleaned_args = raw_args.clone();
     if cleaned_args.len() > 1 && cleaned_args[1] == "convert" {
         cleaned_args.remove(1);
     }
-    if cleaned_args
-        .get(1)
-        .is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "--version" || arg == "-V")
+    if let Some(flag) = cleaned_args
+        .iter()
+        .skip(1)
+        .find(|arg| matches!(arg.as_str(), "--help" | "-h" | "--version" | "-V"))
     {
-        Cli::parse_from(&cleaned_args);
-        return Ok(());
+        Cli::parse_from([cleaned_args[0].clone(), flag.clone()]);
     }
 
     if needs_fallback(&cleaned_args) {

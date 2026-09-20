@@ -1,8 +1,37 @@
 # Sphene
 
-Memory-safe, ImageMagick-compatible image conversion for Debian-based Linux systems using glibc.
+Sphene is a memory-safe, ImageMagick-compatible image conversion CLI for cloud and backend workloads. It keeps native processing bounded before decoding image pixels, helping protect workers from oversized or malicious image inputs.
 
-Sphene handles common file-to-file conversions natively and delegates syntax it does not support to an installed ImageMagick 6 or 7 executable. The native pipeline keeps images in RGBA form, resizes in linear RGB, and applies the 250-megapixel allocation guard before decoding pixel data.
+### Decompression bomb protection
+
+A 107 KB solid-color PNG can declare dimensions of 30,000 × 30,000 pixels: 900 million pixels in a tiny upload.
+
+**ImageMagick (v7.1.2)**
+
+- **Peak memory:** 15.1 GB
+- **Processing time:** 16.36s
+- **Risk:** On a memory-constrained cloud worker, an allocation of this size could trigger OOM termination and take down the worker.
+
+**Sphene (v0.1.1)**
+
+- **Peak memory:** 2.7 MB
+- **Processing time:** < 0.01s
+- **Result:** Rejects the image before decoding with `DimensionsTooLarge(30000, 30000)`.
+
+Sphene enforces this 250-megapixel limit on its native processing path. Unsupported flags and formats are forwarded to an installed ImageMagick `magick` or `convert` executable for compatibility.
+
+## Why teams use Sphene
+
+- **Protect workers at the image boundary.** Oversized images are rejected before pixel buffers are allocated, turning a potential memory event into a bounded request failure.
+- **Keep familiar workflows.** Common file-to-file conversions run natively; unsupported ImageMagick syntax is forwarded to the existing `magick` or `convert` installation.
+- **Get a fast native path.** Native resizing uses linear-light RGB processing and format-aware quality controls while preserving the existing CLI shape.
+- **See compatibility decisions.** Set `RUST_LOG=warn` to see why a command was delegated to ImageMagick.
+
+### Everyday conversion benchmark
+
+On an Apple Silicon arm64 system, Sphene v0.1.1 converted a 6000 × 4000 gradient PNG to a 1200 × 800 WebP at quality 75 in **669.2 ms** on average across five warm runs. ImageMagick v7.1.2 averaged **835.3 ms** for the same command: Sphene was **1.25× faster** in this controlled run. Both outputs were 4,984 bytes and produced RMSE 0 when compared.
+
+This is one reproducible fixture, not a universal speed claim. Measure representative images and workloads before making capacity or latency commitments.
 
 ## Status
 

@@ -1,0 +1,58 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-US
+
+tone_instructions: |
+  Be concise and evidence-driven. Prioritize correctness, security, data-loss
+  risks, compatibility, and performance over style. Report defects before
+  suggestions; skip rustfmt and clippy issues.
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  review_details: false
+  poem: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 5
+    ignore_title_keywords:
+      - WIP
+      - "[skip review]"
+
+  path_instructions:
+    - path: "src/**/*.rs"
+      instructions: |
+        Prioritize memory safety, panic safety, malformed-input handling,
+        integer overflow, unnecessary allocations, and error propagation.
+        Verify the 250-megapixel limit is enforced before any buffer
+        allocation.
+
+        For image processing, check linear-RGB resizing, RGBA alpha
+        preservation, JPEG RGB flattening only at final encoding, and
+        format-specific quality behavior.
+
+        For ImageMagick fallback code, check argument forwarding, executable
+        discovery, exit-status propagation, subprocess safety, and injection
+        risks. Report actionable defects, not stylistic rewrites.
+
+    - path: "tests/**/*.rs"
+      instructions: |
+        Check CLI parity, malformed arguments, unsupported formats, fallback
+        behavior, exit codes, and boundary/security cases. Prefer regression
+        tests protecting real behavior or security invariants.
+
+    - path: ".github/workflows/**/*.yml"
+      instructions: |
+        Check action trust and permissions, secret exposure, native dependency
+        setup, and enforcement of cargo fmt, cargo check, cargo test, and
+        cargo clippy -- -D warnings.
+
+    - path: "Cargo.toml"
+      instructions: |
+        Check dependency necessity, feature flags, native-library portability
+        on Debian/glibc, license compatibility, and whether dependency changes
+        require tests or documentation updates.

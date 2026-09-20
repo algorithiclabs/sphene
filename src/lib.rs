@@ -4,7 +4,6 @@ use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
 use std::fs::File;
-use std::path::Path;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -125,27 +124,95 @@ fn native_resize_geometry(value: &str) -> bool {
 
 /// Spawns ImageMagick with raw CLI arguments minus Sphene's binary name.
 /// Prefers ImageMagick 7's `magick`, then falls back to ImageMagick 6's `convert`.
+fn imagemagick_candidates() -> Vec<std::path::PathBuf> {
+    let known_paths = if cfg!(target_os = "macos") {
+        vec![
+            "/opt/homebrew/bin/magick",
+            "/opt/homebrew/bin/convert",
+            "/usr/local/bin/magick",
+            "/usr/local/bin/convert",
+        ]
+    } else if cfg!(target_os = "windows") {
+        Vec::new()
+    } else {
+        vec![
+            "/usr/bin/magick",
+            "/usr/bin/convert",
+            "/usr/local/bin/magick",
+            "/usr/local/bin/convert",
+        ]
+    };
+
+    let mut candidates = Vec::new();
+    let executables: &[&str] = if cfg!(target_os = "windows") {
+        &["magick"]
+    } else {
+        &["magick", "convert"]
+    };
+    for executable in executables {
+        for known_path in &known_paths {
+            if std::path::Path::new(known_path)
+                .file_stem()
+                .is_some_and(|name| name == *executable)
+            {
+                let candidate = std::path::PathBuf::from(known_path);
+                if !candidates.contains(&candidate) {
+                    candidates.push(candidate);
+                }
+            }
+        }
+
+        if let Some(path) = std::env::var_os("PATH") {
+            for directory in std::env::split_paths(&path) {
+                if !directory.is_absolute() {
+                    continue;
+                }
+                let candidate = directory.join(if cfg!(target_os = "windows") {
+                    format!("{executable}.exe")
+                } else {
+                    executable.to_string()
+                });
+                if !candidates.contains(&candidate) {
+                    candidates.push(candidate);
+                }
+            }
+        }
+    }
+
+    candidates
+}
+
 pub fn spawn_fallback(raw_args: &[String]) -> Result<i32, SpheneError> {
     let args = raw_args.get(1..).unwrap_or_default();
     let current_exe = std::env::current_exe()
         .ok()
         .and_then(|path| path.canonicalize().ok());
-    for executable in ["/usr/bin/magick", "/usr/bin/convert"] {
-        let path = Path::new(executable);
-        if !path.exists() || current_exe.as_deref() == Some(path) {
+    for path in imagemagick_candidates() {
+        if !path.is_file() || path.canonicalize().ok().as_deref() == current_exe.as_deref() {
             continue;
         }
-        let forwarded_args = if executable.ends_with("/convert")
+        let forwarded_args = if path.file_stem().is_some_and(|name| name == "convert")
             && args.first().is_some_and(|arg| arg == "convert")
         {
             &args[1..]
         } else {
             args
         };
-        let status = std::process::Command::new(path)
+        let status = match std::process::Command::new(path)
             .args(forwarded_args)
             .status()
-            .map_err(|e| SpheneError::IoError(e.to_string()))?;
+        {
+            Ok(status) => status,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                continue
+            }
+            Err(error) => return Err(SpheneError::IoError(error.to_string())),
+        };
         return Ok(status.code().unwrap_or(1));
     }
     Err(SpheneError::IoError(
